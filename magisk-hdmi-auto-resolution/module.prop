@@ -1,0 +1,6 @@
+id=hdmi_auto_resolution
+name=HDMI Auto Resolution Switch
+version=1.0.0
+versionCode=1
+author=OpenAI Codex
+description=Auto-switch tablet resolution and DPI when external video output starts or stops.

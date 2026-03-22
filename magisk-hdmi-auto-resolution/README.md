@@ -2,7 +2,7 @@
 
 Magisk module for Android 15 tablets that:
 
-- switches to `1440x2560` and `160 DPI` after external video output becomes active
+- switches to `1440x2560` and `420 DPI` after external video output becomes active
 - switches back to the tablet's detected default resolution and DPI after external video output stops
 
 ## How it works
@@ -19,7 +19,7 @@ When state changes, it runs:
 
 ```sh
 wm size 1440x2560
-wm density 160
+wm density 420
 ```
 
 or:
@@ -66,3 +66,4 @@ Module log path:
 - Vendor ROMs expose external display state differently. If your ROM does not report HDMI / DP in DRM or `dumpsys display`, you will need to adjust the detection rules in `service.sh`.
 - The module changes the tablet's default display override. It does not directly rewrite EDID or external monitor timing.
 - The current implementation is also suitable for KernelSU-style `/data/adb/modules` environments as long as the module manager executes `service.sh`.
+- The service lock now self-recovers from stale `.lock` directories left behind after abnormal exits or reboots.

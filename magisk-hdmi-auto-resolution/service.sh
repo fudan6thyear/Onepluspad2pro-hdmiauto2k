@@ -5,11 +5,15 @@ MODULE_ID=hdmi_auto_resolution
 LOGFILE="$MODDIR/hdmi_auto_resolution.log"
 STATEFILE="$MODDIR/current_profile"
 LOCKDIR="$MODDIR/.lock"
+LOCK_PID_FILE="$LOCKDIR/pid"
+LOCK_BOOT_FILE="$LOCKDIR/boot_id"
+LOCK_START_FILE="$LOCKDIR/start_time"
+BOOT_ID_FILE="/proc/sys/kernel/random/boot_id"
 CONFIG_FILE="$MODDIR/config.sh"
 LOCK_ACQUIRED=0
 
 HDMI_SIZE="1440x2560"
-HDMI_DENSITY="160"
+HDMI_DENSITY="420"
 DEFAULT_SIZE="auto"
 DEFAULT_DENSITY="auto"
 POLL_INTERVAL="3"
@@ -258,15 +262,86 @@ wait_for_boot() {
   sleep 10
 }
 
+get_boot_id() {
+  cat "$BOOT_ID_FILE" 2>/dev/null
+}
+
+get_process_start_time() {
+  local pid="$1"
+  [ -r "/proc/$pid/stat" ] || return 1
+  awk '{ print $22 }' "/proc/$pid/stat" 2>/dev/null
+}
+
+write_lock_metadata() {
+  local boot_id
+  local start_time
+
+  printf '%s\n' "$$" > "$LOCK_PID_FILE"
+
+  boot_id="$(get_boot_id)"
+  [ -z "$boot_id" ] || printf '%s\n' "$boot_id" > "$LOCK_BOOT_FILE"
+
+  start_time="$(get_process_start_time "$$")"
+  [ -z "$start_time" ] || printf '%s\n' "$start_time" > "$LOCK_START_FILE"
+}
+
+is_lock_active() {
+  local pid
+  local lock_boot_id
+  local current_boot_id
+  local recorded_start_time
+  local current_start_time
+
+  [ -d "$LOCKDIR" ] || return 1
+
+  pid="$(cat "$LOCK_PID_FILE" 2>/dev/null)"
+  [ -n "$pid" ] || return 1
+
+  current_boot_id="$(get_boot_id)"
+  lock_boot_id="$(cat "$LOCK_BOOT_FILE" 2>/dev/null)"
+  if [ -n "$current_boot_id" ] && [ -n "$lock_boot_id" ] && [ "$current_boot_id" != "$lock_boot_id" ]; then
+    return 1
+  fi
+
+  kill -0 "$pid" 2>/dev/null || return 1
+
+  recorded_start_time="$(cat "$LOCK_START_FILE" 2>/dev/null)"
+  current_start_time="$(get_process_start_time "$pid")"
+  if [ -n "$recorded_start_time" ] && [ -n "$current_start_time" ] && [ "$recorded_start_time" != "$current_start_time" ]; then
+    return 1
+  fi
+
+  return 0
+}
+
+acquire_lock() {
+  if mkdir "$LOCKDIR" 2>/dev/null; then
+    LOCK_ACQUIRED=1
+    write_lock_metadata
+    return 0
+  fi
+
+  if is_lock_active; then
+    return 1
+  fi
+
+  rm -rf "$LOCKDIR" 2>/dev/null
+  mkdir "$LOCKDIR" 2>/dev/null || return 1
+  LOCK_ACQUIRED=1
+  write_lock_metadata
+  log "Recovered stale lock"
+  return 0
+}
+
 cleanup_lock() {
   [ "$LOCK_ACQUIRED" = "1" ] || return 0
+  rm -f "$LOCK_PID_FILE" "$LOCK_BOOT_FILE" "$LOCK_START_FILE" 2>/dev/null
   rmdir "$LOCKDIR" 2>/dev/null
 }
 
 trap cleanup_lock EXIT
 
-mkdir "$LOCKDIR" 2>/dev/null || exit 0
-LOCK_ACQUIRED=1
+acquire_lock || exit 0
 load_config
 wait_for_boot
 resolve_defaults
